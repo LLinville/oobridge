@@ -14,20 +14,28 @@ class Bridge():
         self.max_response_tokens = 512
         self.cluster_url = "https://stablehorde.net"
         self.generator_url = "http://127.0.0.1:8000"
-        self.instance_name = f"Random533256"
-        self.api_key = "VvAC0CHLp3OoKyL_og5_8w"
-        self.CSRF_Token = "X-CSRF-Token=a2fb4186c84e68bf674757f3fb6afa143fd57a04fef010e7b494e9cbb45f6745"
-        self.cluster_headers = {"apikey": self.api_key}
-        self.generator_headers = {
-            "Cookie": "X-CSRF-Token=a2fb4186c84e68bf674757f3fb6afa143fd57a04fef010e7b494e9cbb45f6745",
-            "X-Csrf-Token": "9d19ca67e4b69f3b6fc9aa605ff11cb8efaf5083794fe77595089b7ee1e1ecef7521422960a6d288fbea5706c34cf2e89a8cc7d1bf4a339b2d854da0fb49b14f"
-        }
+
+        # Load json containing instance_name, api_key, "Cookie": "X-CSRF-Token=...",  "X-Csrf-Token"
+        self.load_credentials("credentials.json")
+
+        self.log_request_content = True
 
         logging.basicConfig(
-            filename='koboldai_horde_oobridge.log',
+            filename='H:\ML\LLM\oobridge_logs\koboldai_horde_oobridge.log',
             level=logging.INFO,
             format='%(asctime)s | %(message)s'
         )
+
+    def load_credentials(self, filename):
+        with open(filename) as credentials_file:
+            credentials = json.load(credentials_file)
+        self.instance_name = credentials['instance_name']
+        self.api_key = credentials['api_key']
+        self.cluster_headers = {"apikey": self.api_key}
+        self.generator_headers = {
+            "Cookie": credentials['Cookie'],  # X-CSRF-Token=...
+            "X-Csrf-Token": credentials['X-Csrf-Token']
+        }
 
     def run(self):
         self.running = True
@@ -35,24 +43,29 @@ class Bridge():
             job = self.get_job()
             if job is None:
                 logging.info("No work yet")
-                time.sleep(5)
+                time.sleep(3)
                 continue
-            logging.info(f"Received job {json.dumps(job)}")
+
             result = self.generate(settings=job)
-            logging.info(f"Job {json.dumps(job)} returned: {result}")
+            if self.log_request_content:
+                try:
+                    logging.info(f"Job {json.dumps(job)} returned: {result}")
+                except UnicodeEncodeError as ex:
+                    logging.info("Failed to encode character: " + str(ex))
+                except Exception as ex:
+                    logging.info(ex)
+
             self.send_results(job['id'], result)
-            # Request prompt from stablehorde
-            # Forward prompt to
 
     def get_job(self):
 
         gen_dict = {
             "name": self.instance_name,
-            "models": ["TheBloke_Wizard-Vicuna-13B-Uncensored-GPTQ"],
+            "models": ["TheBloke/Wizard-Vicuna-13B-Uncensored-GPTQ"],
             "max_length": self.max_response_tokens,
             "max_context_length": self.max_context_tokens,
             "priority_usernames": [],
-            "bridge_agent": f"KoboldAI Bridge:10:https://github.com/db0/KoboldAI-Horde-Bridge",
+            "bridge_agent": f"oobridge:1:https://github.com/LLinville/oobridge",
         }
         response = requests.post(self.cluster_url + '/api/v2/generate/text/pop', json = gen_dict, headers = self.cluster_headers)
 
@@ -76,13 +89,12 @@ class Bridge():
         return payload
 
     def generate(self, prompt="", settings=None):
-        logging.debug("test")
         if settings is None:
             settings = {}
 
         generate_request_body = {
             "prompt": prompt,
-            "max_new_tokens": min(100,self.max_response_tokens),
+            "max_new_tokens": min(512, self.max_response_tokens),
             "temperature": 0.63,
             "top_p": 0.98,
             "typical_p": 1,
@@ -115,7 +127,8 @@ class Bridge():
         generate_response = requests.post(f"{self.generator_url}/generate_textgenerationwebui", json=generate_request_body, headers=self.generator_headers)
         end_time = time.time()
         generated_text = json.loads(generate_response.text)['results'][0]['text']
-        print(f"Generated {len(generated_text)} chars (~{len(generated_text) // 4} tokens in {end_time-start_time:.3f} sec: {len(generated_text) / (end_time-start_time):.2f} chars/sec, ~{len(generated_text) / (end_time-start_time) / 4:.2f} tokens/sec")
+        print(f"Generated {len(generated_text)} chars (~{len(generated_text) // 4} tokens) in {end_time-start_time:.3f} sec: {len(generated_text) / (end_time-start_time):.2f} chars/sec, ~{len(generated_text) / (end_time-start_time) / 4:.2f} tokens/sec | ~{len(settings['prompt']) // 4} token context, max {settings['max_new_tokens']} new tokens")
+        logging.info(f"Generated {len(generated_text)} chars (~{len(generated_text) // 4} tokens) in {end_time-start_time:.3f} sec: {len(generated_text) / (end_time-start_time):.2f} chars/sec, ~{len(generated_text) / (end_time-start_time) / 4:.2f} tokens/sec | ~{len(settings['prompt']) // 4} token context, max {settings['max_new_tokens']} new tokens")
         return json.loads(generate_response.text)['results'][0]['text']
 
     def send_results(self, id, generated_text):
@@ -123,12 +136,9 @@ class Bridge():
             "id": id,
             "generation": generated_text,
         }
-        submit_response = requests.post(self.cluster_url + '/api/v2/generate/text/submit', json = submit_dict, headers = self.cluster_headers)
+        submit_response = requests.post(self.cluster_url + '/api/v2/generate/text/submit', json=submit_dict, headers=self.cluster_headers)
         logging.info(f"Send results response code: {submit_response.status_code}")
-        logging.info(f"Submitted generation with id {id} and contributed for {submit_response.json()['reward']}")
-
-
-
+        logging.info(f"{submit_response.status_code}: Submitted generation with id {id} and contributed for {submit_response.json()['reward']}")
 
     def send_failure(self):
         pass
@@ -136,6 +146,4 @@ class Bridge():
 
 if __name__ == "__main__":
     bridge = Bridge()
-    # example_job = {"payload": {"prompt": "Alone in the woods, Tom heard a noise that sounded like " , "n": 1, "max_context_length": 2048, "max_length": 82, "rep_pen": 1.1, "rep_pen_range": 1024, "rep_pen_slope": 0.7, "temperature": 0.74, "tfs": 0.97, "top_a": 0.75, "top_k": 0, "top_p": 0.5, "typical": 0.19, "sampler_order": [6, 5, 4, 3, 2, 1, 0], "quiet": True}, "id": "63e19ed4-d612-4925-b0f9-d9fc0bc7d561", "skipped": {}, "softprompt": None, "model": "notstoic/OPT-13B-Erebus-4bit-128g"}
-    # bridge.generate(settings=example_job['payload'])
     bridge.run()
