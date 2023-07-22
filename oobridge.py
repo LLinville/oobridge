@@ -18,7 +18,7 @@ class Bridge():
         # Load json containing instance_name, api_key, "Cookie": "X-CSRF-Token=...",  "X-Csrf-Token"
         self.load_credentials("credentials.json")
 
-        self.log_request_content = True
+        self.log_request_content = False
 
         logging.basicConfig(
             filename='H:\ML\LLM\oobridge_logs\koboldai_horde_oobridge.log',
@@ -127,8 +127,9 @@ class Bridge():
         generate_response = requests.post(f"{self.generator_url}/generate_textgenerationwebui", json=generate_request_body, headers=self.generator_headers)
         end_time = time.time()
         generated_text = json.loads(generate_response.text)['results'][0]['text']
-        print(f"Generated {len(generated_text)} chars (~{len(generated_text) // 4} tokens) in {end_time-start_time:.3f} sec: {len(generated_text) / (end_time-start_time):.2f} chars/sec, ~{len(generated_text) / (end_time-start_time) / 4:.2f} tokens/sec | ~{len(settings['prompt']) // 4} token context, max {settings['max_new_tokens']} new tokens")
-        logging.info(f"Generated {len(generated_text)} chars (~{len(generated_text) // 4} tokens) in {end_time-start_time:.3f} sec: {len(generated_text) / (end_time-start_time):.2f} chars/sec, ~{len(generated_text) / (end_time-start_time) / 4:.2f} tokens/sec | ~{len(settings['prompt']) // 4} token context, max {settings['max_new_tokens']} new tokens")
+        if self.log_request_content:
+            print(f"Generated {len(generated_text)} chars (~{len(generated_text) // 4} tokens) in {end_time-start_time:.3f} sec: {len(generated_text) / (end_time-start_time):.2f} chars/sec, ~{len(generated_text) / (end_time-start_time) / 4:.2f} tokens/sec | ~{len(settings['prompt']) // 4} token context, max {settings['max_new_tokens']} new tokens")
+            logging.info(f"Generated {len(generated_text)} chars (~{len(generated_text) // 4} tokens) in {end_time-start_time:.3f} sec: {len(generated_text) / (end_time-start_time):.2f} chars/sec, ~{len(generated_text) / (end_time-start_time) / 4:.2f} tokens/sec | ~{len(settings['prompt']) // 4} token context, max {settings['max_new_tokens']} new tokens")
         return json.loads(generate_response.text)['results'][0]['text']
 
     def send_results(self, id, generated_text):
